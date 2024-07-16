@@ -18,6 +18,7 @@ namespace YapcarSpriteViewer
         public List<Sprite> SpriteList = new List<Sprite>();
         public int type = 0;
         public int imageCount = 0;
+        public int imageFrame = 0;
         public float zoomFactor = 1.0f;
 
         public Form1()
@@ -69,19 +70,21 @@ namespace YapcarSpriteViewer
 
             reader.ReadInt32(); //unknown
             imageCount = reader.ReadInt16();
-            reader.ReadInt16(); //unknown
+            imageFrame = reader.ReadInt16(); //unknown
             reader.ReadBytes(408); //unknown
             for (int i = 0; i < imageCount; i++)
             {
                 Sprite sprite = new Sprite();
                 sprite.Type = type;
                 sprite.Width = reader.ReadInt16();
-                sprite.Height = reader.ReadInt16();
                 SpriteList.Add(sprite);
-
                 listBox1.Items.Add(i+1);
             }
-            reader.ReadBytes(14 * imageCount);
+            for (int i = 0; i < imageCount; i++)
+            {
+                SpriteList[i].Height = reader.ReadInt16();
+            }
+            reader.ReadBytes(14 * imageFrame);
 
             for (int i = 0; i < imageCount; i++)
             {
