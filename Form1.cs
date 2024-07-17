@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -164,10 +165,10 @@ namespace YapcarSpriteViewer
 
         private Color DecodeRGB565(ushort pixelData)
         {
-            //배경 흰색으로 변경
+            //배경 투명으로 변경
             if (pixelData == 0xF81F)
             {
-                pixelData = 0xFFFF;
+                return Color.FromArgb(0x0, 0xFF, 0xFF, 0xFF);
             }
             int b = ((pixelData >> 0) & 0x1F) * 255 / 31;
             int g = ((pixelData >> 5) & 0x3F) * 255 / 63;
@@ -214,6 +215,33 @@ namespace YapcarSpriteViewer
 
             Bitmap bitmap = CreateImageFromSprite(SpriteList[listBox1.SelectedIndex]);
             pictureBox1.Image = bitmap;
+        }
+
+        private void button2_Click(object sender, EventArgs e)
+        {
+
+            string folderPath = Path.GetDirectoryName(textBox1.Text);
+            string outputFolder = Path.Combine(folderPath, "output");
+
+            if (!Directory.Exists(outputFolder))
+            {
+                Directory.CreateDirectory(outputFolder);
+            }
+
+            int index = 0;
+            foreach (Sprite sprite in SpriteList)
+            {
+                Bitmap bitmap = CreateImageFromSprite(sprite);
+                string filePath = Path.Combine(outputFolder, $"{index}.png");
+                bitmap.Save(filePath, ImageFormat.Png);
+                index++;
+            }
+            DialogResult result = MessageBox.Show("저장이 완료되었습니다. \n 저장폴더를 확인하시겠습니까?", "Save", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+
+            if (result == DialogResult.Yes)
+            {
+                Process.Start("explorer.exe", outputFolder);
+            }
         }
     }
 
