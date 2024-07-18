@@ -8,14 +8,19 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using static System.Net.Mime.MediaTypeNames;
+using Microsoft.WindowsAPICodePack.Dialogs;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.Window;
 
 namespace YapcarSpriteViewer
 {
     public partial class Form1 : Form
     {
+        public List<List<Sprite>> SpriteLists = new List<List<Sprite>>();
         public List<Sprite> SpriteList = new List<Sprite>();
         public int type = 0;
         public int imageCount = 0;
@@ -37,7 +42,7 @@ namespace YapcarSpriteViewer
 
             using (OpenFileDialog openFileDialog = new OpenFileDialog())
             {
-                SpriteList.Clear();
+                SpriteList = new List<Sprite>();
                 listBox1.Items.Clear();
                 panel1.Refresh();
                 pictureBox1.Refresh();
@@ -58,42 +63,53 @@ namespace YapcarSpriteViewer
         }
 
 
-        public void parsedSprite(BinaryReader reader)
+        public void parsedSprite(BinaryReader reader, bool folder = false)
         {
-            //얍카 SPR 파일인지 체크
-            if (!System.Text.Encoding.ASCII.GetString(reader.ReadBytes(4)).Equals("ISPR"))
+            try
             {
-                return;
+                //얍카 SPR 파일인지 체크
+                if (!System.Text.Encoding.ASCII.GetString(reader.ReadBytes(4)).Equals("ISPR"))
+                {
+                    return;
+                }
+
+
+                type = reader.ReadInt32(); //0 = RGB565, 1 = RGBA4444 
+
+                reader.ReadInt32(); //unknown
+                imageCount = reader.ReadInt16();
+                imageFrame = reader.ReadInt16(); //unknown
+                reader.ReadBytes(408); //unknown
+                for (int i = 0; i < imageCount; i++)
+                {
+                    Sprite sprite = new Sprite();
+                    sprite.Type = type;
+                    sprite.Width = reader.ReadInt16();
+                    SpriteList.Add(sprite);
+                    listBox1.Items.Add(i + 1);
+                }
+                for (int i = 0; i < imageCount; i++)
+                {
+                    SpriteList[i].Height = reader.ReadInt16();
+                }
+                reader.ReadBytes(14 * imageFrame);
+
+                for (int i = 0; i < imageCount; i++)
+                {
+                    SpriteList[i].Data = reader.ReadBytes(SpriteList[i].Width * SpriteList[i].Height * 2);
+                }
+
+                if (folder)
+                {
+                    SpriteLists.Add(SpriteList);
+                }
+
+                Bitmap bitmap = CreateImageFromSprite(SpriteList[0]);
+                pictureBox1.Image = bitmap;
             }
-
-            
-            type = reader.ReadInt32(); //0 = RGB565, 1 = RGBA4444 
-
-            reader.ReadInt32(); //unknown
-            imageCount = reader.ReadInt16();
-            imageFrame = reader.ReadInt16(); //unknown
-            reader.ReadBytes(408); //unknown
-            for (int i = 0; i < imageCount; i++)
+            catch (Exception ex)
             {
-                Sprite sprite = new Sprite();
-                sprite.Type = type;
-                sprite.Width = reader.ReadInt16();
-                SpriteList.Add(sprite);
-                listBox1.Items.Add(i+1);
             }
-            for (int i = 0; i < imageCount; i++)
-            {
-                SpriteList[i].Height = reader.ReadInt16();
-            }
-            reader.ReadBytes(14 * imageFrame);
-
-            for (int i = 0; i < imageCount; i++)
-            {
-                SpriteList[i].Data = reader.ReadBytes(SpriteList[i].Width * SpriteList[i].Height * 2);
-            }
-
-            Bitmap bitmap = CreateImageFromSprite(SpriteList[0]);
-            pictureBox1.Image = bitmap;
         }
 
         private void listBox1_SelectedIndexChanged(object sender, EventArgs e)
@@ -151,6 +167,70 @@ namespace YapcarSpriteViewer
             }
 
             return image;
+        }
+
+        public Bitmap CreateAtlasFromSpriteLists(List<List<Sprite>> spriteLists)
+        {
+            if (spriteLists == null || spriteLists.Count == 0)
+            {
+                return null;
+            }
+
+            int atlasWidth = 0;
+            int atlasHeight = 0;
+
+            foreach (List<Sprite> spriteList in spriteLists)
+            {
+                int rowWidth = 0;
+                int rowHeight = 0;
+
+                foreach (Sprite sprite in spriteList)
+                {
+                    if (sprite.Data == null || sprite.Data.Length != sprite.Width * sprite.Height * 2)
+                    {
+                        return null;
+                    }
+
+                    rowWidth += sprite.Width;
+                    rowHeight = Math.Max(rowHeight, sprite.Height);
+                }
+
+                atlasWidth = Math.Max(atlasWidth, rowWidth);
+                atlasHeight += rowHeight;
+            }
+
+            Bitmap atlas = new Bitmap(atlasWidth, atlasHeight, PixelFormat.Format32bppArgb);
+            using (Graphics g = Graphics.FromImage(atlas))
+            {
+                int currentX = 0;
+                int currentY = 0;
+
+                foreach (List<Sprite> spriteList in spriteLists)
+                {
+                    currentX = 0; 
+
+                    foreach (Sprite sprite in spriteList)
+                    {
+                        if (sprite.Data == null || sprite.Data.Length != sprite.Width * sprite.Height * 2)
+                        {
+                            return null;
+                        }
+
+                        Bitmap spriteImage = CreateImageFromSprite(sprite);
+                        g.DrawImage(spriteImage, currentX, currentY);
+                        currentX += spriteImage.Width;
+                    }
+
+                    currentY += spriteList.Max(s => s.Height);
+                }
+            }
+
+            if (zoomFactor != 1.0f)
+            {
+                return ResizeImage(atlas, zoomFactor);
+            }
+
+            return atlas;
         }
 
         private Color DecodeRGBA4444(ushort pixelData)
@@ -243,14 +323,51 @@ namespace YapcarSpriteViewer
                 Process.Start("explorer.exe", outputFolder);
             }
         }
+
+        private void button3_Click(object sender, EventArgs e)
+        {
+            using (CommonOpenFileDialog dialog = new CommonOpenFileDialog())
+            {
+                dialog.IsFolderPicker = true;
+                SpriteLists = new List<List<Sprite>>();
+                if (dialog.ShowDialog() == CommonFileDialogResult.Ok)
+                {
+                    string folderPath = dialog.FileName;
+                    textBox1.Text = folderPath;
+
+                    // Get all .spr files in the selected folder
+                    string[] files = Directory.GetFiles(folderPath, "*.spr");
+
+                    foreach (string filePath in files)
+                    {
+                        SpriteList = new List<Sprite>();
+                        using (BinaryReader reader = new BinaryReader(File.Open(filePath, FileMode.Open)))
+                        {
+                            parsedSprite(reader, true);
+                        }
+                    }
+                    Bitmap bitmap = CreateAtlasFromSpriteLists(SpriteLists);
+
+                    string savePath = Path.Combine(folderPath, "atlas.png");
+                    bitmap.Save(savePath, ImageFormat.Png);
+
+                    DialogResult result = MessageBox.Show("저장이 완료되었습니다. \n 저장폴더를 확인하시겠습니까?", "Save", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+
+                    if (result == DialogResult.Yes)
+                    {
+                        Process.Start("explorer.exe", folderPath);
+                    }
+                }
+            }
+        }
     }
 
 
     public class Sprite
     {
         public int Type { get; set; }
-        public short Width { get; set;}
-        public short Height { get; set;}
+        public short Width { get; set; }
+        public short Height { get; set; }
         public byte[] Data { get; set; }
     }
 
