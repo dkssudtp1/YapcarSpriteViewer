@@ -21,11 +21,14 @@ namespace YapcarSpriteViewer
     public partial class Form1 : Form
     {
         public List<List<Sprite>> SpriteLists = new List<List<Sprite>>();
+        public List<List<Tile>> TileLists = new List<List<Tile>>();
         public List<Sprite> SpriteList = new List<Sprite>();
+        public List<Tile> TileList = new List<Tile>();
         public int type = 0;
         public int imageCount = 0;
         public int imageFrame = 0;
         public float zoomFactor = 1.0f;
+        public int Mode = (int)SelectMode.None;
 
         public Form1()
         {
@@ -42,7 +45,9 @@ namespace YapcarSpriteViewer
 
             using (OpenFileDialog openFileDialog = new OpenFileDialog())
             {
+                Mode = (int)SelectMode.None;
                 SpriteList = new List<Sprite>();
+                TileList = new List<Tile>();
                 listBox1.Items.Clear();
                 panel1.Refresh();
                 pictureBox1.Refresh();
@@ -56,7 +61,20 @@ namespace YapcarSpriteViewer
                     textBox1.Text = openFileDialog.FileName;
                     using (BinaryReader reader = new BinaryReader(File.Open(filePath, FileMode.Open)))
                     {
-                        parsedSprite(reader);
+                        string fileExtension = System.Text.Encoding.ASCII.GetString(reader.ReadBytes(4));
+                        //얍카 SPR 파일인지 체크
+                        switch (fileExtension)
+                        {
+                            case "ISPR":
+                                Mode = (int)SelectMode.Sprite;
+                                parsedSprite(reader);
+                                break;
+                            case "ITIS":
+                                Mode = (int)SelectMode.Tile;
+                                parsedTile(reader); 
+                                break;
+
+                        }
                     }
                 }
             }
@@ -67,13 +85,6 @@ namespace YapcarSpriteViewer
         {
             try
             {
-                //얍카 SPR 파일인지 체크
-                if (!System.Text.Encoding.ASCII.GetString(reader.ReadBytes(4)).Equals("ISPR"))
-                {
-                    return;
-                }
-
-
                 type = reader.ReadInt32(); //0 = RGB565, 1 = RGBA4444 
 
                 reader.ReadInt32(); //unknown
@@ -112,18 +123,68 @@ namespace YapcarSpriteViewer
             }
         }
 
+
+        public void parsedTile(BinaryReader reader, bool folder = false)
+        {
+            try
+            {
+
+                short Width = reader.ReadInt16();
+                short Height = reader.ReadInt16();
+                imageCount = reader.ReadInt16();
+                for (int i = 0; i < imageCount; i++)
+                {
+                    Tile tile = new Tile();
+                    tile.Moveable = reader.ReadByte() == 1 ? true : false;
+                    tile.Width = Width;
+                    tile.Height = Height;
+                    TileList.Add(tile);
+                    listBox1.Items.Add(i + 1);
+                }
+
+                for (int i = 0; i < imageCount; i++)
+                {
+                    TileList[i].Data = reader.ReadBytes(Width * Height * 2);
+                }
+
+                if (folder)
+                {
+                    TileLists.Add(TileList);
+                }
+
+                Bitmap bitmap = CreateImageFromSprite(TileList[0]);
+                pictureBox1.Image = bitmap;
+            }
+            catch (Exception ex)
+            {
+            }
+        }
+
         private void listBox1_SelectedIndexChanged(object sender, EventArgs e)
         {
             try
             {
                 if (listBox1.SelectedItem != null)
                 {
-                    if (listBox1.SelectedIndex < SpriteList.Count)
+                    if (Mode == (int)SelectMode.Sprite)
                     {
-                        Bitmap bitmap = CreateImageFromSprite(SpriteList[listBox1.SelectedIndex]);
-                        pictureBox1.Width = bitmap.Width;
-                        pictureBox1.Height = bitmap.Height;
-                        pictureBox1.Image = bitmap;
+                        if (listBox1.SelectedIndex < SpriteList.Count)
+                        {
+                            Bitmap bitmap = CreateImageFromSprite(SpriteList[listBox1.SelectedIndex]);
+                            pictureBox1.Width = bitmap.Width;
+                            pictureBox1.Height = bitmap.Height;
+                            pictureBox1.Image = bitmap;
+                        }
+                    }
+                    if (Mode == (int)SelectMode.Tile)
+                    {
+                        if (listBox1.SelectedIndex < TileList.Count)
+                        {
+                            Bitmap bitmap = CreateImageFromSprite(TileList[listBox1.SelectedIndex]);
+                            pictureBox1.Width = bitmap.Width;
+                            pictureBox1.Height = bitmap.Height;
+                            pictureBox1.Image = bitmap;
+                        }
                     }
                 }
             }
@@ -134,7 +195,7 @@ namespace YapcarSpriteViewer
         {
             if (sprite.Data == null || sprite.Data.Length != sprite.Width * sprite.Height * 2)
             {
-                return null;
+                return new Bitmap(sprite.Width, sprite.Height, PixelFormat.Format32bppArgb);
             }
 
             Bitmap image = new Bitmap(sprite.Width, sprite.Height, PixelFormat.Format32bppArgb);
@@ -293,8 +354,16 @@ namespace YapcarSpriteViewer
                 listBox1.SelectedIndex = 0;
             }
 
-            Bitmap bitmap = CreateImageFromSprite(SpriteList[listBox1.SelectedIndex]);
-            pictureBox1.Image = bitmap;
+            if (Mode == (int)SelectMode.Sprite)
+            {
+                Bitmap bitmap = CreateImageFromSprite(SpriteList[listBox1.SelectedIndex]);
+                pictureBox1.Image = bitmap;
+            }
+            if (Mode == (int)SelectMode.Tile)
+            {
+                Bitmap bitmap = CreateImageFromSprite(TileList[listBox1.SelectedIndex]);
+                pictureBox1.Image = bitmap;
+            }
         }
 
         private void button2_Click(object sender, EventArgs e)
@@ -309,12 +378,26 @@ namespace YapcarSpriteViewer
             }
 
             int index = 0;
-            foreach (Sprite sprite in SpriteList)
+            if (Mode == (int)SelectMode.Sprite)
             {
-                Bitmap bitmap = CreateImageFromSprite(sprite);
-                string filePath = Path.Combine(outputFolder, $"{index}.png");
-                bitmap.Save(filePath, ImageFormat.Png);
-                index++;
+                foreach (Sprite sprite in SpriteList)
+                {
+                    Bitmap bitmap = CreateImageFromSprite(sprite);
+                    string filePath = Path.Combine(outputFolder, $"{index}.png");
+                    bitmap.Save(filePath, ImageFormat.Png);
+                    index++;
+                }
+            }
+
+            if (Mode == (int)SelectMode.Tile)
+            {
+                foreach (Tile tile in TileList)
+                {
+                    Bitmap bitmap = CreateImageFromSprite(tile);
+                    string filePath = Path.Combine(outputFolder, $"{index}.png");
+                    bitmap.Save(filePath, ImageFormat.Png);
+                    index++;
+                }
             }
             DialogResult result = MessageBox.Show("저장이 완료되었습니다. \n 저장폴더를 확인하시겠습니까?", "Save", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
 
@@ -371,4 +454,15 @@ namespace YapcarSpriteViewer
         public byte[] Data { get; set; }
     }
 
+    public class Tile : Sprite
+    {
+        public Boolean Moveable { get; set; }
+    }
+
+    public enum SelectMode : int
+    {
+        None,
+        Sprite,
+        Tile
+    }
 }
